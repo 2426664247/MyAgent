@@ -1,86 +1,71 @@
 # AgentV2
 
-AgentV2 is a local coding agent with two interfaces:
+AgentV2 is a local coding agent with a CLI and a Codex-style web workspace. It talks to OpenAI-compatible chat completion APIs, uses function calling for tools, and keeps file and command operations inside an explicit project sandbox.
 
-- a terminal REPL for direct command-line use
-- a FastAPI + React web workspace inspired by Codex-style agent sessions
+## Highlights
 
-It uses OpenAI-compatible chat completions and native function calling where available. The project is configured to work well with DeepSeek by default, while still supporting OpenRouter, OpenAI, and other compatible providers.
+- CLI REPL and FastAPI web app.
+- React + TypeScript frontend served by the same FastAPI process.
+- Multiple web sessions, each with its own explicit working directory.
+- Local JSON session history in `~/.agent_v2/sessions/`.
+- DeepSeek-friendly defaults with quick model switching between flash and pro variants.
+- Token streaming over SSE.
+- Separate reasoning display when the provider returns reasoning content.
+- Built-in tools for listing files, reading files, writing files, and confirmed shell commands.
+- No default workspace for new sessions. Users must choose an existing absolute directory.
 
-## What It Does
-
-AgentV2 lets you create a sandboxed coding-agent session for a specific local project directory. Inside that directory the agent can inspect files, read source code, write files, and request permission to run shell commands.
-
-The web UI supports multiple independent sessions. Each session has its own working directory, transcript, tool history, run status, and command confirmation flow. Session data is saved locally as JSON so browser refreshes do not erase history.
-
-## Features
-
-- OpenAI-compatible LLM client with native `tools` / `tool_calls` support.
-- Fallback parsing for models that return text-form tool calls.
-- DeepSeek-friendly defaults: `DEEPSEEK_API_KEY` uses `https://api.deepseek.com` and `deepseek-v4-flash` unless overridden.
-- Optional model settings UI that writes local `.env` values.
-- Thinking mode toggle through `LLM_THINKING`.
-- CLI interface with command confirmation.
-- Web interface with SSE streaming, separate reasoning display, chat bubbles, stop button, and command confirmation dialog.
-- Multiple web sessions with local JSON persistence.
-- Explicit per-session working directory. The web API rejects empty or relative paths.
-- `PathSandbox` enforcement for file tools and shell execution.
-- Built-in tools: `list_files`, `read_file`, `write_file`, and `run_command`.
-
-## Safety Model
-
-AgentV2 is intentionally local-first, but it can edit files and run commands after confirmation, so treat it like a coding assistant with access to the selected project.
-
-- The web UI does not create a default working directory. A session cannot start until the user provides an existing absolute path.
-- File tools resolve paths through `PathSandbox` and reject paths outside the session directory.
-- Shell commands run with `cwd` set to the session directory and require confirmation.
-- Session JSON is stored under the current user's home directory at `~/.agent_v2/sessions/`.
-- API keys are stored only in the local `.env` file when saved through the settings UI.
-- Never commit `.env`, local session JSON, `node_modules`, caches, or machine-specific paths.
-
-## Repository Layout
+## Clean Layout
 
 ```text
-agent_v2/
-  __init__.py              Package export
-  __main__.py              `python -m agent_v2` entry point
-  cli.py                   Click-based terminal interface
-  env_config.py            Read, mask, and write local `.env` settings
-  llm.py                   OpenAI-compatible client, streaming, tool-call fallback
-  prompt.py                System prompt template
-  protocol.py              Agent step and tool result data models
-  registry.py              `@tool()` registration and JSON Schema generation
-  runner.py                CLI ReAct loop
-  sandbox.py               Path sandbox enforcement
-  sessions.py              JSON-backed web session store
-  settings.py              Environment-based runtime settings
-  web.py                   FastAPI app, REST API, SSE endpoint, static hosting
-  web_runner.py            Async streaming web runner and command confirmation
-  builtins/
-    fs.py                  `list_files`, `read_file`, `write_file`
-    shell.py               `run_command`
-  static/                  Built React assets served by FastAPI
-  tests/                   Python unit tests
-  web_ui/                  Vite + React + TypeScript frontend source
+.
+├── agent_v2/                 # Python package
+│   ├── builtins/             # Built-in tool implementations
+│   ├── static/               # Built web assets served by FastAPI
+│   ├── web_ui/               # React/Vite frontend source
+│   ├── cli.py                # CLI entry point
+│   ├── env_config.py         # .env read/write helpers
+│   ├── llm.py                # OpenAI-compatible LLM client
+│   ├── registry.py           # Tool registration and JSON schema generation
+│   ├── runner.py             # Synchronous CLI runner
+│   ├── sessions.py           # JSON session store
+│   ├── web.py                # FastAPI app and API routes
+│   └── web_runner.py         # Async streaming web runner
+├── tests/                    # Python unit tests
+├── .env.example              # Safe placeholder configuration
+├── pyproject.toml            # Python package metadata
+├── README.md
+└── AGENTS.md
 ```
 
-## Requirements
+The repository root is intentionally small. Runtime Python code, frontend source, and built web assets all live under `agent_v2/`.
 
-- Python 3.12+
-- Node.js and npm only if you want to rebuild the frontend
-- An OpenAI-compatible API key
+## Installation
 
-Python dependencies are declared in `pyproject.toml`. Frontend dependencies are declared in `web_ui/package.json`.
+Use Python 3.12 or newer.
 
-## Configure The Model
+```bash
+pip install -e .
+```
 
-Copy the example environment file and fill in your key:
+If you want to rebuild the web UI, Node.js and npm are also required:
+
+```bash
+cd agent_v2/web_ui
+npm install
+npm run build
+```
+
+The Vite build writes to `agent_v2/static/`, which is included as package data.
+
+## Model Configuration
+
+Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-For DeepSeek:
+DeepSeek example:
 
 ```env
 LLM_API_KEY=your_api_key
@@ -89,54 +74,22 @@ LLM_MODEL=deepseek-v4-flash
 LLM_THINKING=enabled
 ```
 
-Recognized API key variables, in priority order:
+API key priority:
 
 1. `LLM_API_KEY`
 2. `DEEPSEEK_API_KEY`
 3. `OPENROUTER_API_KEY`
 4. `OPENAI_API_KEY`
 
-Other settings:
+Other environment variables:
 
-- `LLM_BASE_URL`: OpenAI-compatible base URL. DeepSeek default is `https://api.deepseek.com` when `DEEPSEEK_API_KEY` is used and no base URL is set.
-- `LLM_MODEL`: model name. Defaults to `deepseek-v4-flash` for `DEEPSEEK_API_KEY`, otherwise `openai/gpt-4o-mini`.
+- `LLM_BASE_URL`: OpenAI-compatible base URL.
+- `LLM_MODEL`: model name.
 - `LLM_THINKING`: `enabled` or `disabled`.
 
-The web settings dialog can also save `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_THINKING` into `.env`.
+When `DEEPSEEK_API_KEY` is set and no base URL/model is provided, AgentV2 defaults to `https://api.deepseek.com` and `deepseek-v4-flash`.
 
-## Install
-
-From the repository root:
-
-```bash
-pip install -e .
-```
-
-If you want to rebuild the React app:
-
-```bash
-cd web_ui
-npm install
-npm run build
-```
-
-The Vite build writes files into `static/`, which FastAPI serves directly.
-
-## Run The CLI
-
-Pass the project directory explicitly:
-
-```bash
-python -m agent_v2 /absolute/path/to/project
-```
-
-Optional model override:
-
-```bash
-python -m agent_v2 /absolute/path/to/project --model deepseek-v4-pro --max-steps 20
-```
-
-Exit with `/exit`, `/quit`, `exit`, or `quit`.
+The web model settings dialog writes `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_THINKING` to the repository-root `.env`.
 
 ## Run The Web App
 
@@ -144,7 +97,7 @@ Exit with `/exit`, `/quit`, `exit`, or `quit`.
 python -m agent_v2.web --host 127.0.0.1 --port 8000
 ```
 
-or, after installing the package:
+or:
 
 ```bash
 agent-v2-web --host 127.0.0.1 --port 8000
@@ -156,21 +109,46 @@ Open:
 http://127.0.0.1:8000
 ```
 
-Create a new session from the sidebar and provide an existing absolute directory. The backend rejects empty, missing, file, or relative project paths.
+Create a session from the sidebar and enter an existing absolute project directory. Empty paths, relative paths, missing directories, and file paths are rejected.
+
+## Run The CLI
+
+```bash
+python -m agent_v2 /absolute/path/to/project
+```
+
+Optional model and step limit:
+
+```bash
+python -m agent_v2 /absolute/path/to/project --model deepseek-v4-pro --max-steps 20
+```
+
+Exit with `/exit`, `/quit`, `exit`, or `quit`.
+
+## Built-In Tools
+
+| Tool | Purpose | Confirmation |
+| --- | --- | --- |
+| `list_files` | Render the selected project tree | No |
+| `read_file` | Read a text file inside the sandbox | No |
+| `write_file` | Write a text file inside the sandbox | No |
+| `run_command` | Run a shell command from the sandbox root | Yes |
+
+All file paths are resolved by `PathSandbox`. Commands run with `cwd` set to the session project directory.
 
 ## Web API
 
-- `GET /api/sessions`: list session summaries.
-- `POST /api/sessions`: create a session with `name` and `project_dir`.
-- `GET /api/sessions/{id}`: read full session history.
-- `DELETE /api/sessions/{id}`: delete a session.
-- `POST /api/sessions/{id}/messages/stream`: send a message and receive SSE events.
-- `POST /api/sessions/{id}/stop`: stop a running session.
-- `POST /api/tool-confirmations/{confirmation_id}`: approve or reject a pending command.
-- `GET /api/settings`: read masked model settings.
-- `POST /api/settings`: save local model settings.
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `GET /api/sessions/{id}`
+- `DELETE /api/sessions/{id}`
+- `POST /api/sessions/{id}/messages/stream`
+- `POST /api/sessions/{id}/stop`
+- `POST /api/tool-confirmations/{confirmation_id}`
+- `GET /api/settings`
+- `POST /api/settings`
 
-Important SSE event types:
+Important SSE events:
 
 - `user_message`
 - `step`
@@ -184,30 +162,42 @@ Important SSE event types:
 - `stopped`
 - `error`
 
-`assistant_message_complete` is the event used to persist one completed assistant bubble. `final` only marks the run complete and should not merge all previous assistant deltas into a single bubble.
+`assistant_message_complete` persists one completed assistant reply. `final` only marks the run complete.
 
-## Test
+## Tests
 
-Run Python tests from the repository root after installing the package in editable mode:
+Backend:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Frontend build:
+
+```bash
+cd agent_v2/web_ui
+npm run build
+```
+
+Recommended release check:
 
 ```bash
 pip install -e .
 python -m unittest discover -s tests -v
-```
-
-Run the frontend build from the package directory:
-
-```bash
-cd web_ui
+cd agent_v2/web_ui
 npm run build
 ```
 
-## Publishing Checklist
+## Privacy And Safety
 
-Before pushing or packaging:
+Do not commit:
 
-- Confirm `.env` is not staged.
-- Confirm `web_ui/node_modules/`, `__pycache__/`, `.pytest_cache/`, and `*.tsbuildinfo` are not staged.
-- Rebuild the frontend after UI changes.
-- Run the Python unit tests after backend or runner changes.
-- Avoid committing local absolute paths, personal names, real API keys, session JSON, or temporary experiment files.
+- `.env`
+- real API keys or tokens
+- local session JSON from `~/.agent_v2/sessions/`
+- `node_modules/`
+- Python caches and test caches
+- TypeScript build info
+- local absolute paths or personal machine/user names
+
+The repository includes `.env.example` only, with placeholders.

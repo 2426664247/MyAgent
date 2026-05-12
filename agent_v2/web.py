@@ -19,7 +19,7 @@ from .web_runner import ConfirmationBroker, WebAgentRunner
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 
 class CreateSessionRequest(BaseModel):
@@ -78,7 +78,7 @@ def index() -> FileResponse:
 @app.get("/api/project-root")
 def get_project_root() -> dict[str, str]:
     return {
-        "project_root": str(DEFAULT_PROJECT_ROOT),
+        "project_root": str(REPOSITORY_ROOT),
     }
 
 

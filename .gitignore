@@ -6,6 +6,6 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 node_modules/
-web_ui/node_modules/
-web_ui/*.tsbuildinfo
+**/node_modules/
+**/*.tsbuildinfo
 *.log

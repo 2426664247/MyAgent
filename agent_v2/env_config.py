@@ -8,7 +8,7 @@ ENV_KEYS = ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_THINKING")
 
 
 def default_env_path() -> Path:
-    return Path(__file__).resolve().parent / ".env"
+    return Path(__file__).resolve().parent.parent / ".env"
 
 
 def read_env_config(path: Path | None = None) -> dict[str, str]:
