@@ -1,0 +1,27 @@
+[project]
+name = "agent-v2"
+version = "0.1.0"
+description = "Local coding agent with a CLI and FastAPI React web UI."
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.2.1",
+    "fastapi>=0.115.0",
+    "openai>=1.91.0",
+    "python-dotenv>=1.1.1",
+    "uvicorn>=0.30.0",
+]
+
+[project.scripts]
+agent-v2 = "agent_v2.cli:main"
+agent-v2-web = "agent_v2.web:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["agent_v2", "agent_v2.builtins"]
+package-dir = {"agent_v2" = ".", "agent_v2.builtins" = "builtins"}
+
+[tool.setuptools.package-data]
+agent_v2 = ["static/*", "static/assets/*"]
