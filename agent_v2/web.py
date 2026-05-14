@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from .env_config import masked_config, write_env_config
 from .sessions import SessionRecord, SessionStore, validate_project_dir
 from .settings import Settings
+from .special_features import generate_project_poster
 from .web_runner import ConfirmationBroker, WebAgentRunner
 
 
@@ -36,6 +37,10 @@ class SendMessageRequest(BaseModel):
 
 class ConfirmationRequest(BaseModel):
     approved: bool
+
+
+class ProjectPosterRequest(BaseModel):
+    project_dir: str = ""
 
 
 class SettingsRequest(BaseModel):
@@ -199,6 +204,54 @@ def confirm_tool(confirmation_id: str, payload: ConfirmationRequest) -> dict[str
     if not ok:
         raise HTTPException(status_code=404, detail="Confirmation not found")
     return {"ok": True}
+
+
+@app.post("/api/sessions/{session_id}/special/project-poster")
+async def special_project_poster(session_id: str, payload: ProjectPosterRequest) -> dict[str, Any]:
+    try:
+        record = state.store.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+
+    if session_id in state.running_tasks and not state.running_tasks[session_id].done():
+        raise HTTPException(status_code=409, detail="Session is already running")
+
+    try:
+        requested_project_dir = payload.project_dir.strip() or record.project_dir
+        project_dir = validate_project_dir(requested_project_dir)
+        settings = Settings.from_env()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    record.status = "running"
+    record.messages.append(_new_message(
+        "user",
+        content=f"特殊功能：为项目仓库生成介绍海报\n{project_dir}",
+    ))
+    state.store.save(record)
+
+    try:
+        result = await asyncio.to_thread(generate_project_poster, project_dir, settings)
+        record = state.store.get(session_id)
+        record.status = "idle"
+        record.messages.append(_new_message(
+            "assistant_final",
+            content="已阅读项目仓库并生成项目介绍海报。下面是发送给文生图模型的详细 prompt：\n\n" + result.prompt,
+        ))
+        record.messages.append(_new_message(
+            "image_feedback",
+            prompt=result.prompt,
+            urls=result.urls,
+            error="",
+        ))
+        state.store.save(record)
+        return {"session": record.to_dict()}
+    except Exception as exc:
+        record = state.store.get(session_id)
+        record.status = "error"
+        record.messages.append(_new_message("error", content=f"项目介绍海报生成失败：{exc}"))
+        state.store.save(record)
+        return {"session": record.to_dict()}
 
 
 @app.post("/api/sessions/{session_id}/messages/stream")

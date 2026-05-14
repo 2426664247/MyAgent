@@ -13,6 +13,7 @@ import {
   RefreshCcw,
   Send,
   Settings,
+  Sparkles,
   Square,
   Terminal,
   Trash2,
@@ -95,6 +96,7 @@ function App() {
   const [activeSession, setActiveSession] = React.useState<SessionRecord | null>(null);
   const [settings, setSettings] = React.useState<SettingsRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [specialOpen, setSpecialOpen] = React.useState(false);
   const [newSessionOpen, setNewSessionOpen] = React.useState(false);
   const [pendingConfirmation, setPendingConfirmation] = React.useState<PendingConfirmation | null>(null);
   const [running, setRunning] = React.useState(false);
@@ -102,6 +104,8 @@ function App() {
   const [draft, setDraft] = React.useState("");
   const [newName, setNewName] = React.useState("");
   const [newProject, setNewProject] = React.useState("");
+  const [posterProject, setPosterProject] = React.useState("");
+  const [specialRunning, setSpecialRunning] = React.useState(false);
   const [settingsForm, setSettingsForm] = React.useState({
     api_key: "",
     base_url: "",
@@ -197,6 +201,34 @@ function App() {
     });
     await loadSettings();
     setSettingsOpen(false);
+  }
+
+  async function generateProjectPoster(event: React.FormEvent) {
+    event.preventDefault();
+    if (!activeId || running || specialRunning || !posterProject.trim()) return;
+    setRunning(true);
+    setSpecialRunning(true);
+    setError(null);
+    setSpecialOpen(false);
+    appendLocal({
+      type: "user",
+      content: `特殊功能：为项目仓库生成介绍海报\n${posterProject.trim()}`,
+      created_at: new Date().toISOString(),
+    });
+    try {
+      const data = await api<{ session: SessionRecord }>(`/api/sessions/${activeId}/special/project-poster`, {
+        method: "POST",
+        body: JSON.stringify({ project_dir: posterProject.trim() }),
+      });
+      setActiveSession(data.session);
+      await loadSessions(data.session.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      await loadSessions(activeId);
+    } finally {
+      setRunning(false);
+      setSpecialRunning(false);
+    }
   }
 
   async function sendMessage(event: React.FormEvent) {
@@ -416,6 +448,18 @@ function App() {
             <p className="mt-0.5 truncate text-xs text-zinc-500">{activeSession?.project_dir ?? "Create a session from the sidebar."}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!activeId || running}
+              onClick={() => {
+                setPosterProject(activeSession?.project_dir ?? "");
+                setSpecialOpen(true);
+              }}
+            >
+              <Sparkles size={14} />
+              特殊功能
+            </Button>
             <div className="hidden items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-500 md:flex">
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />}
               {running ? "Running" : "Idle"}
@@ -492,6 +536,44 @@ function App() {
           </div>
         </form>
       </section>
+
+      <Dialog open={specialOpen} onOpenChange={setSpecialOpen} title="特殊功能" description="选择一个项目仓库，生成适合项目介绍的视觉海报。">
+        <form onSubmit={generateProjectPoster} className="space-y-4">
+          <button
+            type="button"
+            className="flex w-full items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-left text-emerald-950"
+            onClick={() => setPosterProject(activeSession?.project_dir ?? posterProject)}
+          >
+            <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-white text-emerald-700">
+              <ImageIcon size={16} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">项目仓库介绍海报</span>
+              <span className="mt-1 block text-xs leading-5 text-emerald-800">
+                Agent 会阅读仓库结构和关键文件，先生成细致文生图 prompt，再调用火山方舟生成海报。
+              </span>
+            </span>
+          </button>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-zinc-600">Project repository</label>
+            <Input
+              value={posterProject}
+              placeholder="/absolute/path/to/repository"
+              onChange={(event) => setPosterProject(event.target.value)}
+            />
+          </div>
+          <div className="rounded-md bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-500">
+            这个功能会读取所选目录中的 README、配置文件和少量源码摘要；会自动避开 .env、node_modules、.venv 等本地敏感或依赖目录。
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setSpecialOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={!activeId || running || specialRunning || !posterProject.trim()}>
+              {specialRunning ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+              Generate poster
+            </Button>
+          </div>
+        </form>
+      </Dialog>
 
       <Dialog open={newSessionOpen} onOpenChange={setNewSessionOpen} title="New session" description="Choose an existing absolute local directory for this session sandbox.">
         <form onSubmit={createSession} className="space-y-3">
