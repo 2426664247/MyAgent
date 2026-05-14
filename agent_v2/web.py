@@ -31,6 +31,7 @@ class SendMessageRequest(BaseModel):
     content: str
     max_steps: int = 999
     model: str | None = None
+    image_feedback: bool = False
 
 
 class ConfirmationRequest(BaseModel):
@@ -42,6 +43,11 @@ class SettingsRequest(BaseModel):
     base_url: str = ""
     model: str = ""
     thinking_enabled: bool = True
+    ark_image_api_key: str = ""
+    ark_image_base_url: str = ""
+    ark_image_model: str = ""
+    ark_image_size: str = ""
+    ark_image_watermark: bool = True
 
 
 class RuntimeState:
@@ -96,6 +102,11 @@ def get_settings() -> dict[str, Any]:
             "base_url": data.get("LLM_BASE_URL", ""),
             "model": data.get("LLM_MODEL", ""),
             "thinking_enabled": (data.get("LLM_THINKING") or "enabled") != "disabled",
+            "ark_image_api_key_masked": data.get("ARK_IMAGE_API_KEY_MASKED", ""),
+            "ark_image_base_url": data.get("ARK_IMAGE_BASE_URL", ""),
+            "ark_image_model": data.get("ARK_IMAGE_MODEL", ""),
+            "ark_image_size": data.get("ARK_IMAGE_SIZE", ""),
+            "ark_image_watermark": (data.get("ARK_IMAGE_WATERMARK") or "true").lower() not in ("0", "false", "off", "disabled", "no"),
         }
     }
 
@@ -107,11 +118,19 @@ def update_settings(payload: SettingsRequest) -> dict[str, Any]:
         "LLM_BASE_URL": payload.base_url,
         "LLM_MODEL": payload.model,
         "LLM_THINKING": "enabled" if payload.thinking_enabled else "disabled",
+        "ARK_IMAGE_BASE_URL": payload.ark_image_base_url,
+        "ARK_IMAGE_MODEL": payload.ark_image_model,
+        "ARK_IMAGE_SIZE": payload.ark_image_size,
+        "ARK_IMAGE_WATERMARK": "true" if payload.ark_image_watermark else "false",
     }
     if payload.api_key.strip():
         values["LLM_API_KEY"] = payload.api_key
     elif not current.get("LLM_API_KEY_MASKED"):
         values["LLM_API_KEY"] = ""
+    if payload.ark_image_api_key.strip():
+        values["ARK_IMAGE_API_KEY"] = payload.ark_image_api_key
+    elif not current.get("ARK_IMAGE_API_KEY_MASKED"):
+        values["ARK_IMAGE_API_KEY"] = ""
     write_env_config(values)
     data = masked_config()
     return {
@@ -120,6 +139,11 @@ def update_settings(payload: SettingsRequest) -> dict[str, Any]:
             "base_url": data.get("LLM_BASE_URL", ""),
             "model": data.get("LLM_MODEL", ""),
             "thinking_enabled": (data.get("LLM_THINKING") or "enabled") != "disabled",
+            "ark_image_api_key_masked": data.get("ARK_IMAGE_API_KEY_MASKED", ""),
+            "ark_image_base_url": data.get("ARK_IMAGE_BASE_URL", ""),
+            "ark_image_model": data.get("ARK_IMAGE_MODEL", ""),
+            "ark_image_size": data.get("ARK_IMAGE_SIZE", ""),
+            "ark_image_watermark": (data.get("ARK_IMAGE_WATERMARK") or "true").lower() not in ("0", "false", "off", "disabled", "no"),
         }
     }
 
@@ -213,6 +237,7 @@ async def stream_message(session_id: str, payload: SendMessageRequest) -> Stream
                 project_dir=project_dir,
                 confirmation_broker=state.confirmations,
                 stop_event=stop_event,
+                image_feedback_enabled=payload.image_feedback,
             )
             async for event in runner.run(content, history=record.messages[:-1]):
                 await _persist_event(session_id, event)
@@ -284,6 +309,15 @@ async def _persist_event(session_id: str, event: dict[str, Any]) -> None:
             "assistant_final",
             content=event["content"],
             reasoning_content=event.get("reasoning_content", ""),
+            step=event.get("step"),
+        ))
+    elif kind == "image_feedback":
+        record.status = "idle"
+        record.messages.append(_new_message(
+            "image_feedback",
+            prompt=event.get("prompt", ""),
+            urls=event.get("urls", []),
+            error=event.get("error", ""),
             step=event.get("step"),
         ))
     elif kind == "final":

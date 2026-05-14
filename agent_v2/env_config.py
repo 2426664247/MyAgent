@@ -4,7 +4,17 @@ import os
 from pathlib import Path
 
 
-ENV_KEYS = ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_THINKING")
+ENV_KEYS = (
+    "LLM_API_KEY",
+    "LLM_BASE_URL",
+    "LLM_MODEL",
+    "LLM_THINKING",
+    "ARK_IMAGE_API_KEY",
+    "ARK_IMAGE_BASE_URL",
+    "ARK_IMAGE_MODEL",
+    "ARK_IMAGE_SIZE",
+    "ARK_IMAGE_WATERMARK",
+)
 
 
 def default_env_path() -> Path:
@@ -45,6 +55,12 @@ def masked_config(path: Path | None = None) -> dict[str, str]:
     else:
         data["LLM_API_KEY_MASKED"] = ""
     data["LLM_API_KEY"] = ""
+    ark_key = data.get("ARK_IMAGE_API_KEY", "")
+    if ark_key:
+        data["ARK_IMAGE_API_KEY_MASKED"] = f"{ark_key[:4]}...{ark_key[-4:]}" if len(ark_key) > 8 else "***"
+    else:
+        data["ARK_IMAGE_API_KEY_MASKED"] = ""
+    data["ARK_IMAGE_API_KEY"] = ""
     return data
 
 

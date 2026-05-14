@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator
 
 from .builtins import register_all
 from .builtins.fs import _render_tree
+from .image_generation import build_feedback_prompt, generate_image_feedback
 from .llm import LLMClient
 from .prompt import SYSTEM_PROMPT
 from .registry import get_registry, get_tools_payload
@@ -60,6 +61,7 @@ class WebAgentRunner:
         confirmation_broker: ConfirmationBroker | None = None,
         stop_event: asyncio.Event | None = None,
         llm: LLMClient | None = None,
+        image_feedback_enabled: bool = False,
     ):
         self.settings = settings
         self.project_dir = project_dir.resolve()
@@ -68,6 +70,7 @@ class WebAgentRunner:
         self.stop_event = stop_event or asyncio.Event()
         self.sandbox = PathSandbox(self.project_dir)
         self.pending_confirmation_event: dict[str, Any] | None = None
+        self.image_feedback_enabled = image_feedback_enabled
         register_all(self.sandbox)
 
     async def run(
@@ -140,6 +143,10 @@ class WebAgentRunner:
                     async for event in self._process_tool_calls(step_num, fake_calls, messages):
                         yield event
                     continue
+
+                if self.image_feedback_enabled and content.strip():
+                    yield {"type": "step", "step": step_num, "message": "正在生成图像反馈..."}
+                    yield {**await self._generate_image_feedback(user_input, content), "step": step_num}
 
                 yield {
                     "type": "final",
@@ -310,13 +317,29 @@ class WebAgentRunner:
         except Exception as exc:
             return f"工具执行错误：{exc}"
 
+    async def _generate_image_feedback(self, user_input: str, content: str) -> dict[str, Any]:
+        prompt = build_feedback_prompt(user_input, content)
+        try:
+            urls = await asyncio.to_thread(generate_image_feedback, prompt)
+            return {"type": "image_feedback", "prompt": prompt, "urls": urls}
+        except Exception as exc:
+            return {"type": "image_feedback", "prompt": prompt, "urls": [], "error": str(exc)}
+
     def _build_system_prompt(self) -> str:
-        return Template(SYSTEM_PROMPT).substitute(
+        prompt = Template(SYSTEM_PROMPT).substitute(
             tool_list=self._render_tool_list(),
             operating_system=_get_os_name(),
             project_directory=str(self.project_dir),
             file_tree=_render_tree(self.project_dir, max_depth=10, max_entries=1000),
         )
+        if self.image_feedback_enabled:
+            prompt += (
+                "\n## 图像反馈能力\n\n"
+                "本次用户已开启图像反馈。你不需要调用工具生成图片；在你给出最终文字回答后，系统会自动调用火山方舟生图引擎生成图片并展示给用户。\n"
+                "如果用户要求生成、绘制、创建图片，你必须承认该请求可以通过已开启的图像反馈完成，不要说自己没有图像生成能力，不要推荐外部生图工具。\n"
+                "你的最终回答应简短描述将要生成的画面或确认正在生成，避免输出 ASCII 画、SVG、Python 代码或冗长替代方案，除非用户明确要求代码或文件。\n"
+            )
+        return prompt
 
     def _render_tool_list(self) -> str:
         lines = []

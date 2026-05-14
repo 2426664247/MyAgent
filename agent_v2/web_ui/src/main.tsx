@@ -6,6 +6,7 @@ import {
   Check,
   Circle,
   FolderPlus,
+  Image as ImageIcon,
   KeyRound,
   Loader2,
   Play,
@@ -56,6 +57,9 @@ type MessageRecord = {
   success?: boolean;
   project_dir?: string;
   reasoning_content?: string;
+  prompt?: string;
+  urls?: string[];
+  error?: string;
 };
 
 type SettingsRecord = {
@@ -63,6 +67,11 @@ type SettingsRecord = {
   base_url: string;
   model: string;
   thinking_enabled: boolean;
+  ark_image_api_key_masked: string;
+  ark_image_base_url: string;
+  ark_image_model: string;
+  ark_image_size: string;
+  ark_image_watermark: boolean;
 };
 
 type PendingConfirmation = {
@@ -93,8 +102,18 @@ function App() {
   const [draft, setDraft] = React.useState("");
   const [newName, setNewName] = React.useState("");
   const [newProject, setNewProject] = React.useState("");
-  const [settingsForm, setSettingsForm] = React.useState({ api_key: "", base_url: "", model: "" });
+  const [settingsForm, setSettingsForm] = React.useState({
+    api_key: "",
+    base_url: "",
+    model: "",
+    ark_image_api_key: "",
+    ark_image_base_url: "",
+    ark_image_model: "",
+    ark_image_size: "",
+  });
   const [thinkingEnabled, setThinkingEnabled] = React.useState(true);
+  const [arkImageWatermark, setArkImageWatermark] = React.useState(true);
+  const [imageFeedbackEnabled, setImageFeedbackEnabled] = React.useState(false);
   const [streamItems, setStreamItems] = React.useState<StreamItem[]>([]);
   const reasoningRef = React.useRef("");
   const currentStepRef = React.useRef<number | undefined>(undefined);
@@ -126,8 +145,17 @@ function App() {
   async function loadSettings() {
     const data = await api<{ settings: SettingsRecord }>("/api/settings");
     setSettings(data.settings);
-    setSettingsForm({ api_key: "", base_url: data.settings.base_url, model: data.settings.model });
+    setSettingsForm({
+      api_key: "",
+      base_url: data.settings.base_url,
+      model: data.settings.model,
+      ark_image_api_key: "",
+      ark_image_base_url: data.settings.ark_image_base_url,
+      ark_image_model: data.settings.ark_image_model,
+      ark_image_size: data.settings.ark_image_size,
+    });
     setThinkingEnabled(data.settings.thinking_enabled);
+    setArkImageWatermark(data.settings.ark_image_watermark);
   }
 
   async function openSession(id: string) {
@@ -161,7 +189,11 @@ function App() {
     event.preventDefault();
     await api("/api/settings", {
       method: "POST",
-      body: JSON.stringify({ ...settingsForm, thinking_enabled: thinkingEnabled }),
+      body: JSON.stringify({
+        ...settingsForm,
+        thinking_enabled: thinkingEnabled,
+        ark_image_watermark: arkImageWatermark,
+      }),
     });
     await loadSettings();
     setSettingsOpen(false);
@@ -183,7 +215,7 @@ function App() {
       const response = await fetch(`/api/sessions/${activeId}/messages/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, image_feedback: imageFeedbackEnabled }),
       });
       if (!response.ok || !response.body) throw new Error(await readError(response));
 
@@ -418,22 +450,45 @@ function App() {
         </div>
 
         <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-[#fbfbf8]/95 px-5 py-4">
-          <div className="mx-auto flex max-w-5xl gap-3">
-            <Textarea
-              value={draft}
-              disabled={!activeId || running}
-              placeholder={activeId ? "Ask AgentV2 to inspect, edit, or run something..." : "Create or select a session first"}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              className="min-h-[70px] bg-white"
-            />
-            <Button className="h-[70px] w-20" disabled={!activeId || running || !draft.trim()}>
-              {running ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-            </Button>
+          <div className="mx-auto flex max-w-5xl flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                disabled={!activeId || running}
+                className={cn(
+                  "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-xs font-medium transition disabled:pointer-events-none disabled:opacity-50",
+                  imageFeedbackEnabled
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                    : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                )}
+                onClick={() => setImageFeedbackEnabled(!imageFeedbackEnabled)}
+                title="开启后，本次回复结束时会调用火山方舟生成一张图像反馈"
+              >
+                <ImageIcon size={14} />
+                图像反馈
+                <span className="rounded bg-white/70 px-1.5 py-0.5">{imageFeedbackEnabled ? "开" : "关"}</span>
+              </button>
+              <span className="text-xs text-zinc-400">
+                {imageFeedbackEnabled ? "将使用火山方舟生图" : "仅生成文字回复"}
+              </span>
+            </div>
+            <div className="flex gap-3">
+              <Textarea
+                value={draft}
+                disabled={!activeId || running}
+                placeholder={activeId ? "Ask AgentV2 to inspect, edit, or run something..." : "Create or select a session first"}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                className="min-h-[70px] bg-white"
+              />
+              <Button className="h-[70px] w-20" disabled={!activeId || running || !draft.trim()}>
+                {running ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+              </Button>
+            </div>
           </div>
         </form>
       </section>
@@ -519,6 +574,60 @@ function App() {
             <span>Thinking mode</span>
             <span className="text-xs">{thinkingEnabled ? "Enabled" : "Disabled"}</span>
           </button>
+          <div className="mt-4 border-t border-zinc-200 pt-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-800">
+              <ImageIcon size={15} />
+              火山方舟生图
+            </div>
+            <div className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+              Current Ark key: {settings?.ark_image_api_key_masked || "not saved"}
+            </div>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-600">Ark API Key</label>
+                <Input
+                  type="password"
+                  value={settingsForm.ark_image_api_key}
+                  placeholder="Leave blank to keep current Ark key"
+                  onChange={(event) => setSettingsForm({ ...settingsForm, ark_image_api_key: event.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-600">Ark Image URL</label>
+                <Input
+                  value={settingsForm.ark_image_base_url}
+                  onChange={(event) => setSettingsForm({ ...settingsForm, ark_image_base_url: event.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-zinc-600">Image model</label>
+                  <Input
+                    value={settingsForm.ark_image_model}
+                    onChange={(event) => setSettingsForm({ ...settingsForm, ark_image_model: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-zinc-600">Size</label>
+                  <Input
+                    value={settingsForm.ark_image_size}
+                    onChange={(event) => setSettingsForm({ ...settingsForm, ark_image_size: event.target.value })}
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm transition",
+                  arkImageWatermark ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-zinc-200 bg-zinc-50 text-zinc-600",
+                )}
+                onClick={() => setArkImageWatermark(!arkImageWatermark)}
+              >
+                <span>Watermark</span>
+                <span className="text-xs">{arkImageWatermark ? "Enabled" : "Disabled"}</span>
+              </button>
+            </div>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setSettingsOpen(false)}>Cancel</Button>
             <Button type="submit">Save</Button>
@@ -564,6 +673,9 @@ function App() {
 }
 
 function TranscriptItem({ message }: { message: MessageRecord }) {
+  if (message.type === "image_feedback") {
+    return <ImageFeedbackItem message={message} />;
+  }
   if (message.type !== "user" && message.type !== "assistant_final" && message.type !== "error" && message.type !== "stopped") {
     return null;
   }
@@ -594,6 +706,43 @@ function TranscriptItem({ message }: { message: MessageRecord }) {
         {isUser ? <Avatar icon={User} tone="user" /> : null}
       </article>
     </>
+  );
+}
+
+function ImageFeedbackItem({ message }: { message: MessageRecord }) {
+  const urls = message.urls ?? [];
+  return (
+    <article className="flex w-full justify-start gap-3 py-3">
+      <Avatar icon={ImageIcon} tone="agent" />
+      <div className="flex max-w-[78%] flex-col items-start">
+        <div className="rounded-2xl rounded-bl-md border border-zinc-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-500">
+            <ImageIcon size={13} />
+            图像反馈
+          </div>
+          {message.error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-800">
+              {message.error}
+            </div>
+          ) : (
+            <div className={cn("grid gap-2", urls.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+              {urls.map((url) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
+                  <img src={url} alt="图像反馈" className="aspect-video w-full object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
+          <details className="mt-2 text-xs text-zinc-500">
+            <summary className="cursor-pointer">Prompt</summary>
+            <div className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2 leading-5">
+              {message.prompt}
+            </div>
+          </details>
+        </div>
+        <div className="mt-1 px-1 text-[11px] text-zinc-400">{formatTime(message.created_at)}</div>
+      </div>
+    </article>
   );
 }
 
@@ -703,6 +852,7 @@ function visibleMessages(messages: MessageRecord[]) {
   return messages.filter((message) => (
     message.type === "user"
     || message.type === "assistant_final"
+    || message.type === "image_feedback"
     || message.type === "error"
     || message.type === "stopped"
   ));

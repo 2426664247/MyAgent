@@ -145,6 +145,20 @@ class WebRunnerTests(unittest.TestCase):
         events = asyncio.run(scenario())
         self.assertEqual(events[-1]["type"], "stopped")
 
+    def test_image_feedback_prompt_notice(self) -> None:
+        llm = FakeLLM([[chunk(content="我会生成一张猫咪图片。")]])
+        runner = WebAgentRunner(
+            settings=self.settings,
+            project_dir=self.tmp,
+            llm=llm,
+            image_feedback_enabled=True,
+        )
+
+        prompt = runner._build_system_prompt()
+
+        self.assertIn("本次用户已开启图像反馈", prompt)
+        self.assertIn("不要说自己没有图像生成能力", prompt)
+
 
 async def _collect(source):
     return [event async for event in source]
